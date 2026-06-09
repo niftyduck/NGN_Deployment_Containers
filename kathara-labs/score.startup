@@ -1,0 +1,9 @@
+ip addr add 20.0.0.1/24 dev eth0
+/usr/share/openvswitch/scripts/ovs-ctl --system-id=random start
+ovs-vsctl add-br score
+ovs-vsctl set-fail-mode score secure
+ovs-vsctl add-port score eth1
+ovs-vsctl add-port score eth2
+ovs-vsctl add-port score eth3
+ovs-vsctl set bridge score protocols=[OpenFlow13]
+ovs-vsctl set-controller score tcp:20.0.0.100:6653

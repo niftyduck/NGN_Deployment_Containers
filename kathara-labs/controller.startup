@@ -1,0 +1,3 @@
+ip addr add 20.0.0.100/24 dev eth0
+sleep 2
+ryu-manager --ofp-tcp-listen-port 6653 --wsapi-port 8080 /shared/controller/sdn_controller.py ryu.app.ofctl_rest &

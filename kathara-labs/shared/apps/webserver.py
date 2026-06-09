@@ -1,0 +1,18 @@
+from flask import Flask
+import requests, os
+
+app = Flask(__name__)
+DB_URL = os.environ.get("DB_URL", "http://10.0.0.2:5001")
+
+
+@app.route("/")
+def index():
+    try:
+        data = requests.get(DB_URL, timeout=2).json()
+        return f"<h1>Web Server</h1><p>Got from DB: {data}</p>"
+    except Exception as e:
+        return f"<h1>Error connecting to DB</h1><p>{e}</p>", 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
