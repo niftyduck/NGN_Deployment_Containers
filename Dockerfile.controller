@@ -4,7 +4,7 @@ FROM debian:bullseye-slim
 ARG DEBIAN_FRONTEND="noninteractive"
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-setuptools python3-dev gcc \
-    iproute2 iputils-ping && rm -rf /var/lib/apt/lists/*
+    iproute2 iputils-ping netbase && rm -rf /var/lib/apt/lists/*
 RUN ln -sf /usr/bin/python3 /usr/bin/python
 RUN ln -sf /usr/bin/pip3 /usr/bin/pip
 RUN pip install "eventlet==0.30.2"

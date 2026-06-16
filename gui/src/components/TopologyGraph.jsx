@@ -105,8 +105,7 @@ export default function TopologyGraph({ topology }) {
           height={dims.h}
           graphData={graphData}
           backgroundColor="#0d1117"
-          // Disable simulation — nodes are pinned
-          cooldownTicks={0}
+          cooldownTicks={1}
           enableNodeDrag={false}
           // Node rendering
           nodeCanvasObject={paintNode}
