@@ -14,9 +14,7 @@ import placement
 import ryu_client
 import state
 
-# ---------------------------------------------------------------------------
-# App setup
-# ---------------------------------------------------------------------------
+# ---- Setup
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("orchestrator")
@@ -30,9 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# WebSocket log broadcast
-# ---------------------------------------------------------------------------
+# ---- WebSocket log broadcast
 
 _ws_clients: list[WebSocket] = []
 _log_buffer: list[str] = []
@@ -56,9 +52,7 @@ class _WSLogHandler(logging.Handler):
 
 logging.getLogger("orchestrator").addHandler(_WSLogHandler())
 
-# ---------------------------------------------------------------------------
-# Topology constants
-# ---------------------------------------------------------------------------
+# ---- Topology constants
 
 # score ports: port 1 → s1, port 2 → s2, port 3 → s3
 SWITCH_TO_SCORE_PORT: dict[str, int] = {"s1": 1, "s2": 2, "s3": 3}
@@ -76,9 +70,7 @@ _TOPOLOGY_LINKS = [
     ("s3", "h5"), ("s3", "h6"),
 ]
 
-# ---------------------------------------------------------------------------
-# Startup / shutdown
-# ---------------------------------------------------------------------------
+# ---- Startup
 
 @app.on_event("startup")
 async def on_startup():
@@ -97,9 +89,7 @@ def _discover_dpids_sync():
     state.save()
 
 
-# ---------------------------------------------------------------------------
-# Flow computation helpers
-# ---------------------------------------------------------------------------
+# ---- Flow computation helpers
 
 def _fwd(dpid: int, match: dict, out_port: int) -> tuple:
     return (dpid, match, [{"type": "OUTPUT", "port": out_port}], FLOW_PRIORITY)
@@ -119,8 +109,8 @@ def _compute_flow_entries(
 
     entries = []
 
+    # same edge switch
     if src_sw == dst_sw:
-        # ── same edge switch ──────────────────────────────────────────────
         dpid = src_dpid
         entries += [
             _fwd(dpid, {"dl_type": ETH_IP,  "nw_src": src_ip, "nw_dst": dst_ip, "nw_proto": 6}, dst_port),
@@ -129,7 +119,7 @@ def _compute_flow_entries(
             _fwd(dpid, {"dl_type": ETH_ARP, "arp_spa": dst_ip, "arp_tpa": src_ip}, src_port),
         ]
     else:
-        # ── cross-switch: src_edge → score → dst_edge ────────────────────
+        # cross-switch: src_edge → score → dst_edge
         score_src_port = SWITCH_TO_SCORE_PORT[src_sw]  # score port toward src
         score_dst_port = SWITCH_TO_SCORE_PORT[dst_sw]  # score port toward dst
 
@@ -164,9 +154,7 @@ def _switches_on_path(src_sw: str, dst_sw: str) -> list[str]:
     return [src_sw, "score", dst_sw]
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+# ---- Routes
 
 @app.get("/health")
 async def health():
@@ -207,7 +195,7 @@ async def get_state():
     }
 
 
-# ── Deploy service ──────────────────────────────────────────────────────────
+# ---- Deploy Service
 
 class DeployRequest(BaseModel):
     service: str
@@ -255,7 +243,7 @@ async def deploy_service(req: DeployRequest):
     }
 
 
-# ── Stop app ────────────────────────────────────────────────────────────────
+# ---- Stop app
 
 @app.post("/apps/{app_id}/stop")
 async def stop_app(app_id: str):
@@ -283,7 +271,7 @@ async def stop_app(app_id: str):
     return {"stopped": app_id}
 
 
-# ── Requirements ────────────────────────────────────────────────────────────
+# ---- Requirements
 
 class RequirementRequest(BaseModel):
     src_app_id: str
@@ -376,7 +364,7 @@ async def _delete_requirement(req_id: str):
                 logger.warning("Flow delete failed for %s: %s", fid, exc)
 
 
-# ── Flows ───────────────────────────────────────────────────────────────────
+# ---- Flows
 
 @app.get("/flows")
 async def get_flows():
@@ -389,7 +377,7 @@ async def get_flows():
         )
 
 
-# ── Admin ───────────────────────────────────────────────────────────────────
+# ---- Admin
 
 @app.post("/admin/discover")
 async def discover_dpids():
@@ -412,7 +400,7 @@ async def reset_state():
     return {"status": "reset"}
 
 
-# ── WebSocket log stream ─────────────────────────────────────────────────────
+# ---- WebSocket log stream
 
 @app.websocket("/logs")
 async def ws_logs(ws: WebSocket):
@@ -432,7 +420,7 @@ async def ws_logs(ws: WebSocket):
         _ws_clients.remove(ws)
 
 
-# ── Static GUI (production build) ────────────────────────────────────────────
+# ---- Static GUI (production build)
 
 _GUI_DIST = Path(__file__).parent.parent / "gui" / "dist"
 if _GUI_DIST.exists():
