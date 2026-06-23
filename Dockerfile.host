@@ -1,0 +1,6 @@
+# kathara/base hosts have no internet access inside the lab network (fail-mode
+# secure + isolated 10.0.0.0/24), so `pip install` at container-startup time can
+# never succeed. Bake Flask/requests in at build time instead, when Docker has
+# normal internet access on the host machine.
+FROM kathara/base
+RUN pip install --break-system-packages --no-cache-dir flask requests
