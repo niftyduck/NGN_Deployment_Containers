@@ -1,3 +1,12 @@
+
+""" This acts as a brain that sits between the GUI and the
+    Kathara network lab.
+    The actual network lets nothing talk to anything, due to
+    secure fail-mode. The orchestrator is able to:
+    - Deploy a fake app
+    - Starting/stopping apps
+    - Let two apps talk to each other """
+
 import asyncio
 import logging
 import uuid
@@ -30,12 +39,12 @@ app.add_middleware(
 
 # ---- WebSocket log broadcast
 
-_ws_clients: list[WebSocket] = []
-_log_buffer: list[str] = []
+_ws_clients: list[WebSocket] = []   # holds every currently connected WebSocket client
+_log_buffer: list[str] = []         # last N formatted log strings
 _LOG_BUFFER_MAX = 200
 
-
 class _WSLogHandler(logging.Handler):
+    # Forwards a copy of the log and sends it to all browsers currently watching
     def emit(self, record: logging.LogRecord):
         msg = self.format(record)
         _log_buffer.append(msg)
@@ -49,14 +58,12 @@ class _WSLogHandler(logging.Handler):
             except Exception:
                 pass
 
-
 logging.getLogger("orchestrator").addHandler(_WSLogHandler())
 
 # ---- Topology constants
 
-# score ports: port 1 → s1, port 2 → s2, port 3 → s3
 SWITCH_TO_SCORE_PORT: dict[str, int] = {"s1": 1, "s2": 2, "s3": 3}
-UPLINK_PORT = 1   # port 1 on every edge switch = uplink to score
+UPLINK_PORT = 1         # on every edge switch, port 1 is the cable going up to score (uplink)
 FLOW_PRIORITY = 100
 
 # ethertype constants
@@ -91,25 +98,27 @@ def _discover_dpids_sync():
 
 # ---- Flow computation helpers
 
+# Helper to wrap content into a tuple
 def _fwd(dpid: int, match: dict, out_port: int) -> tuple:
-    return (dpid, match, [{"type": "OUTPUT", "port": out_port}], FLOW_PRIORITY)
+    return dpid, match, [{"type": "OUTPUT", "port": out_port}], FLOW_PRIORITY
 
-
+# Given src/dst hosts, return the full list of flow rules needed for both directions of traffic between them
 def _compute_flow_entries(
     src_host: dict, dst_host: dict,
     src_dpid: int, dst_dpid: int, score_dpid: int,
 ) -> list[tuple]:
-    """Return list of (dpid, match, actions, priority) for a bidirectional path."""
+
+    # Return list of (dpid, match, actions, priority) for a bidirectional path
     src_ip = src_host["ip"]
     dst_ip = dst_host["ip"]
     src_sw = src_host["switch"]
     dst_sw = dst_host["switch"]
-    src_port = src_host["port"]  # host's port on its edge switch
+    src_port = src_host["port"]
     dst_port = dst_host["port"]
 
     entries = []
 
-    # same edge switch
+    # is the destination in the same edge switch?
     if src_sw == dst_sw:
         dpid = src_dpid
         entries += [
@@ -119,7 +128,7 @@ def _compute_flow_entries(
             _fwd(dpid, {"dl_type": ETH_ARP, "arp_spa": dst_ip, "arp_tpa": src_ip}, src_port),
         ]
     else:
-        # cross-switch: src_edge → score → dst_edge
+        # destination cross-switch: src_edge -> score -> dst_edge
         score_src_port = SWITCH_TO_SCORE_PORT[src_sw]  # score port toward src
         score_dst_port = SWITCH_TO_SCORE_PORT[dst_sw]  # score port toward dst
 
@@ -144,7 +153,6 @@ def _compute_flow_entries(
             _fwd(dst_dpid, {"dl_type": ETH_ARP, "arp_spa": src_ip, "arp_tpa": dst_ip}, dst_port),
             _fwd(dst_dpid, {"dl_type": ETH_ARP, "arp_spa": dst_ip, "arp_tpa": src_ip}, UPLINK_PORT),
         ]
-
     return entries
 
 
@@ -197,49 +205,66 @@ async def get_state():
 
 # ---- Deploy Service
 
+# Each service is a list of app types deployed together, one host each.
+SERVICE_APPS: dict[str, list[str]] = {
+    "shop": ["webserver", "database"],
+    "banking": ["webserver", "auth", "database"],
+}
+APP_PORTS = {"webserver": 5000, "database": 5001, "auth": 5002}
+ID_PREFIX = {"webserver": "web", "database": "db", "auth": "auth"}
+
+
 class DeployRequest(BaseModel):
     service: str
 
 
 @app.post("/services/deploy")
 async def deploy_service(req: DeployRequest):
-    if req.service != "shop":
+    app_types = SERVICE_APPS.get(req.service)
+    if app_types is None:
         return JSONResponse({"error": f"unknown service '{req.service}'"}, status_code=400)
 
-    # Pick host for webserver
-    ws_host = placement.pick_host(state.hosts)
-    if ws_host is None:
-        return JSONResponse({"error": "no hosts available for webserver"}, status_code=503)
-    state.hosts[ws_host]["app_count"] += 1
+    # Pick one host per app type, rolling back app_count bumps if we run out of hosts
+    hosts_by_type: dict[str, str] = {}
+    for app_type in app_types:
+        host = placement.pick_host(state.hosts)
+        if host is None:
+            for picked_host in hosts_by_type.values():
+                state.hosts[picked_host]["app_count"] -= 1
+            return JSONResponse({"error": f"no hosts available for {app_type}"}, status_code=503)
+        state.hosts[host]["app_count"] += 1
+        hosts_by_type[app_type] = host
 
-    # Pick host for database (now considers updated app_count)
-    db_host = placement.pick_host(state.hosts)
-    if db_host is None:
-        state.hosts[ws_host]["app_count"] -= 1
-        return JSONResponse({"error": "no hosts available for database"}, status_code=503)
-    state.hosts[db_host]["app_count"] += 1
+    logger.info("Deploying %s: %s", req.service, hosts_by_type)
 
-    ws_id = f"web-{uuid.uuid4().hex[:6]}"
-    db_id = f"db-{uuid.uuid4().hex[:6]}"
-    db_ip = state.hosts[db_host]["ip"]
+    app_ids: dict[str, str] = {}
+    for app_type in app_types:
+        host = hosts_by_type[app_type]
+        env = {}
+        if app_type == "webserver":
+            if "database" in hosts_by_type:
+                db_ip = state.hosts[hosts_by_type["database"]]["ip"]
+                env["DB_URL"] = f"http://{db_ip}:{APP_PORTS['database']}"
+            if "auth" in hosts_by_type:
+                auth_ip = state.hosts[hosts_by_type["auth"]]["ip"]
+                env["AUTH_URL"] = f"http://{auth_ip}:{APP_PORTS['auth']}"
 
-    logger.info("Deploying webserver→%s db→%s", ws_host, db_host)
-    await asyncio.to_thread(kathara_ctl.start_app, ws_host, "webserver", {"DB_URL": f"http://{db_ip}:5001"})
-    await asyncio.to_thread(kathara_ctl.start_app, db_host, "database", {})
+        await asyncio.to_thread(kathara_ctl.start_app, host, app_type, env)
 
-    state.apps[ws_id] = {
-        "app_id": ws_id, "service": req.service, "type": "webserver",
-        "host": ws_host, "status": "running",
-    }
-    state.apps[db_id] = {
-        "app_id": db_id, "service": req.service, "type": "database",
-        "host": db_host, "status": "running",
-    }
+        app_id = f"{ID_PREFIX[app_type]}-{uuid.uuid4().hex[:6]}"
+        state.apps[app_id] = {
+            "app_id": app_id, "service": req.service, "type": app_type,
+            "host": host, "status": "running",
+        }
+        app_ids[app_type] = app_id
+
     state.save()
 
     return {
-        "webserver_id": ws_id, "database_id": db_id,
-        "ws_host": ws_host, "db_host": db_host,
+        "deployed": {
+            app_type: {"app_id": app_ids[app_type], "host": hosts_by_type[app_type]}
+            for app_type in app_types
+        }
     }
 
 

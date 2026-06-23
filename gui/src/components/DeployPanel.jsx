@@ -37,8 +37,8 @@ const S = {
   row: { display: 'flex', alignItems: 'center', gap: 8 },
 }
 
-const APP_TYPE_COLOR = { webserver: '#3fb950', database: '#d2a8ff' }
-const SERVICES = ['shop']
+const APP_TYPE_COLOR = { webserver: '#3fb950', database: '#d2a8ff', auth: '#f0883e' }
+const SERVICES = ['shop', 'banking']
 
 export default function DeployPanel({ apps, hosts, onDeploy, onStop, onAddRequirement, loading }) {
   const [service, setService] = useState('shop')
@@ -52,7 +52,10 @@ export default function DeployPanel({ apps, hosts, onDeploy, onStop, onAddRequir
     setMsg(null)
     try {
       const res = await onDeploy(service)
-      setMsg({ ok: true, text: `Deployed: webserver → ${res.ws_host}, db → ${res.db_host}` })
+      const summary = Object.entries(res.deployed)
+        .map(([type, info]) => `${type} → ${info.host}`)
+        .join(', ')
+      setMsg({ ok: true, text: `Deployed: ${summary}` })
     } catch (e) {
       setMsg({ ok: false, text: e.message })
     }
@@ -111,7 +114,9 @@ export default function DeployPanel({ apps, hosts, onDeploy, onStop, onAddRequir
           </button>
         </div>
         <div style={{ fontSize: 11, color: '#6e7681', marginTop: 8 }}>
-          Deploys webserver + database onto two hosts
+          {service === 'banking'
+            ? 'Deploys webserver + auth + database onto three hosts'
+            : 'Deploys webserver + database onto two hosts'}
         </div>
       </div>
 

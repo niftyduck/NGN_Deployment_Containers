@@ -1,22 +1,36 @@
+
+""" This script handles the state of the network from the orchestrator's
+    point of view. Initializes the hosts by reading host_map.json and
+    copies the content into state.json, which is updated live.
+
+    It's just a set of utils for initialization, loading and saving
+    the network info in main.py of the orchestrator."""
+
 import json
 from pathlib import Path
 
+# Static config file describing the topology
 HOST_MAP_PATH = Path(__file__).parent.parent / "kathara-labs" / "shared" / "host_map.json"
+
+# Live runtime state
 STATE_PATH = Path(__file__).parent / "state.json"
 
-
+# For each host entry in host_map.json, it adds "app_count": 0
 def _init_hosts() -> dict:
     with open(HOST_MAP_PATH) as f:
         raw = json.load(f)
-    return {name: {**info, "app_count": 0} for name, info in raw.items()}
+
+    return {
+        name: dict(info, app_count=0)
+        for name, info in raw.items()
+    }
 
 
 hosts: dict = {}
 apps: dict = {}
 requirements: dict = {}
 flows: dict = {}
-dpids: dict = {}  # switch_name → dpid (int)
-
+dpids: dict = {}
 
 def save():
     STATE_PATH.write_text(
@@ -26,7 +40,6 @@ def save():
             indent=2,
         )
     )
-
 
 def load():
     global hosts, apps, requirements, flows, dpids

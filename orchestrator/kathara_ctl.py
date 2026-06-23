@@ -1,8 +1,12 @@
+
+
+""" Helper to let the orchestrator control devices inside Kathar by
+    running 'kathara exec' command-line tool. """
+
 import subprocess
 from pathlib import Path
 
 LAB_DIR = str(Path(__file__).parent.parent / "kathara-labs")
-
 
 def _exec(device: str, cmd: str) -> subprocess.CompletedProcess:
     return subprocess.run(
@@ -20,6 +24,7 @@ def get_dpid(switch_name: str) -> int:
         raise RuntimeError(
             f"Failed to get dpid for {switch_name}: {result.stderr.strip()}"
         )
+
     # OVS prints the value quoted: "0000000000000001"
     raw = result.stdout.strip().strip('"')
     return int(raw, 16)

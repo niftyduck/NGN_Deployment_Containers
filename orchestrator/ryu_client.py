@@ -1,8 +1,15 @@
+
+""" Async HTTP wrapper around Ryu's REST API, to simplify repetitive
+    instructions. It's used to control OpenFlow switches from the Ryu
+    SDN controller.
+
+    Since each function makes an HTTP call to Ryu's REST API at
+    localhost:8080, they're all async (non-blocking)."""
+
 import httpx
 
 RYU_BASE = "http://localhost:8080"
 TIMEOUT = 5.0
-
 
 async def get_switches() -> list[int]:
     async with httpx.AsyncClient(timeout=TIMEOUT) as client:
